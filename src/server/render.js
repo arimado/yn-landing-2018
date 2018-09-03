@@ -1,5 +1,5 @@
 import fs from "fs";
-import path from "path";
+import path, { dirname } from "path";
 import Canvas, { Image } from "canvas";
 
 // From a buffer:
@@ -22,3 +22,48 @@ const readSingleImage = () => {
     img.src = src;
   });
 }
+
+const createOutputFolder = (folderName) => {
+  console.log('createOutputFoldser()');
+  return new Promise((resolve, reject) => {
+    fs.mkdir(path.join(__dirname, `../images/${folderName}`), err => {
+      if (err) {
+        if (err.code && err.code === "EEXIST") {
+          console.log("ouput folder already exists");
+          resolve();
+          return;
+        }
+        reject(err);
+        return;
+      }
+      resolve();
+    });    
+  });
+}
+
+
+// const splitVideoIntoImages = () => {
+//   return new Promise((resolve, reject) => {
+//     const ffmpeg = spawn("ffmpeg", [
+//       "-i",
+//       path.join(__dirname, "./video/tree.mp4"),
+//       path.join(__dirname, "./video")
+//     ]);
+//     ffmpeg.stderr.on('data', (data) => {
+//       console.log(`${data}`);
+//     });
+//     ffmpeg.on('close', (code) => {
+//       resolve();
+//     });
+//   })
+// }
+
+(async () => {
+  const createFolder = await createOutputFolder('imageOutput');
+})()
+
+
+
+// splitVideoIntoImages().then(() => {
+//   console.log('finished splitting videos ');
+// })
