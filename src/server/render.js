@@ -3,29 +3,7 @@ import  { spawn } from "child_process";
 import path, { dirname } from "path";
 import Canvas, { Image } from "canvas";
 
-// From a buffer:
-
-const readSingleImage = () => {
-  fs.readFile(path.join(__dirname, "/images/img.jpg"), (err, src) => {
-    if (err) throw err;
-    const img = new Image();
-    img.onerror = err => {
-      throw err;
-    };
-    img.onload = () => {
-      const canvas = new Canvas(img.width, img.height);
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(img, 0, 0);
-      console.log("write file");
-      const buf = canvas.toBuffer();
-      fs.writeFileSync("canvas2.png", buf);
-    };
-    img.src = src;
-  });
-}
-
 const createOutputFolder = (folderName) => {
-  console.log('createOutputFoldser()');
   return new Promise((resolve, reject) => {
     fs.mkdir(path.join(__dirname, `temp/${folderName}`), err => {
       if (err) {
@@ -45,7 +23,6 @@ const createOutputFolder = (folderName) => {
 
 const splitVideoIntoImages = () => {
   return new Promise((resolve, reject) => {
-    console.log("Promise exec: splitVideoIntoImages");
     const ffmpeg = spawn("ffmpeg", [
       "-i",
       path.join(__dirname, "/video/tree.mp4"),
@@ -61,39 +38,98 @@ const splitVideoIntoImages = () => {
   })
 }
 
+// /Users/jeremyarimado/projects/yn-landing-2018/src/server/temp/effectImageSplit/output_%04d.png
+// /Users/jeremyarimado/projects/yn-landing-2018/src/server/temp/effectsImageSplit/
+// `ffmpeg -framerate 24 -i output_%04d.png -pix_fmt yuv420p output2.mp4
 
+const mergeImagesIntoVideo = () => new Promise((resolve, reject) => {
+  const ffmpeg = spawn("ffmpeg", [
+    "-i",
+    path.join(__dirname, `temp/effectsImageSplit/output_%04d.png`),
+    '-pix_fmt',
+    'yuv420p',
+    path.join(__dirname, "/video/output_final.mp4"),
+  ]);
+  ffmpeg.stderr.on('data', (data) => {
+    console.log(`${data}`);
+  });
+  ffmpeg.on('close', (code) => {
+    console.log('merge applied!')
+    resolve();
+  });
+});
 
-const deleteFileIn = directoryPath => filePath => new Promise((resolve, reject) => {
-  fs.unlink(`${__dirname}/${directoryPath}/${filePath}`, error => {
-    if (error) {
-      console.log("error: ", error);
-      reject();
-      return;
+const updateFilesInDirectory = directoryPath => updateFile => new Promise((resolve, reject) => {
+  fs.readdir(path.join(`${__dirname}/${directoryPath}`), (err, files) => {
+    if (err) {
+      reject(err);
     }
-    console.log("deleted brah");
+    const deleteFiles = files
+      .map(fileName => `${__dirname}/${directoryPath}/${fileName}`)
+      .map(updateFile);
+    Promise.all(deleteFiles)
+      .then(data => resolve())
+      .catch(err => reject());
+  });
+}); 
+
+const deleteFile = filePath => new Promise((resolve, reject) => {
+  fs.unlink(filePath, error => {
+    if (error) {
+      reject();
+    }
     resolve();
   });
 })
 
+const applyImageEffect = targetDirectory => imagePath => new Promise((resolve, reject) => {
+  fs.readFile(imagePath, (err, src) => {
+    if (err) reject();
+    const img = new Image();
+    img.onerror = err => {
+      throw err;
+    };
+    img.onload = () => {
+      const canvas = new Canvas(img.width, img.height);
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0);
+      ctx.beginPath();
+      ctx.lineWidth = "10";
+      ctx.strokeStyle = "blue";
+      ctx.rect(50, 50, 150, 80);
+      ctx.stroke();
+      const data = canvas.toBuffer();
+      fs.writeFile(
+        path.join(__dirname, targetDirectory, path.basename(imagePath)),
+        data,
+        err => {
+          if (err) {
+            reject();
+            return;
+          }
+          resolve();
+        }
+      );
+    };
+    img.src = src;
+  });
+});
+
 const clearDirectoryContentsOf = (directoryPath) => {
   return new Promise((resolve, reject) => {
-    console.log("clearing directory path of: ", path.join(`${__dirname}/${directoryPath}`));
     fs.readdir(path.join(`${__dirname}/${directoryPath}`), (err, files) => {
-      console.log('files: ', files)
       if (err) {
         reject(err);
       }
-      const deleteFiles = files.map(deleteFileIn(directoryPath));
-      console.log(deleteFiles);
+      const deleteFiles = files
+        .map(fileName => `${__dirname}/${directoryPath}/${fileName}`)
+        .map(deleteFile);
       Promise.all(deleteFiles)
-        .then(data => { 
-          console.log('dleted!')
-          resolve()
-        })
+        .then(data => resolve())
         .catch(err => reject());
     });
   }) 
-}
+} 
 
 
 const waitFor = time => {
@@ -106,20 +142,32 @@ const waitFor = time => {
   });
 }
 
-const init = async (rawImageFolderName) => {
+
+
+const init = async (rawImageFolderName, effectsFolderName) => {
+  const rawFolder = `temp/${rawImageFolderName}`;
+  const effectFolder = `temp/${effectsFolderName}`;
+  const updateTempImages = updateFilesInDirectory(rawFolder);
+  const updateEffectImages = updateFilesInDirectory(effectFolder);
+
   await createOutputFolder(rawImageFolderName);
   // split source video into images 
     // images go into the output folder 
   await splitVideoIntoImages(rawImageFolderName);
-  await waitFor(3000);
-  await clearDirectoryContentsOf(`temp/${rawImageFolderName}`); 
-  // createEffectOuputFolder() 
+  await createOutputFolder(effectsFolderName);
+  await updateTempImages(applyImageEffect(effectFolder));
+  await waitFor(3000); 
+  await updateTempImages(deleteFile); 
+  await mergeImagesIntoVideo(effectsFolderName);
+  await updateEffectImages(deleteFile);
+  // createEffectOuputFolder();
   // applyEffectToImages
   // createdRenderOutputFolder
   // mergeImagesIntoVideo
+  console.log('done')
 }
 
-init('rawImageSplit');
+init('rawImageSplit', 'effectsImageSplit');
 
 
 // splitVideoIntoImages().then(() => {
