@@ -72,9 +72,11 @@ function disableAllControls() {
 }
 
 function onInput() {
+    console.log('onInput: ', elFrame)
     const index = elStyle.selectedIndex;
     const imgsrc = imageDataUrl(elSample.children[elSample.selectedIndex].value);
     const oldCanvas = elFrame.querySelector("canvas");
+    c
 
     if (oldCanvas != null)
         elFrame.removeChild(oldCanvas);
@@ -87,6 +89,7 @@ function onInput() {
 
     const drawFn = drawFnHash[elStyle.children[index].value];
     const kernel = Number(elKernel.children[elKernel.selectedIndex].value);
+    console.log({ kernel })
     const frameEl = elFrame;
     elImg.classList.remove("show");
     disableAllControls();

@@ -47,3 +47,6 @@ build/config/buildinfo.properties
 
 
 node_modules/
+
+
+src/server/render/
