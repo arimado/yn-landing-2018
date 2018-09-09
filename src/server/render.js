@@ -3,6 +3,10 @@ import  { spawn } from "child_process";
 import path from "path";
 import Canvas, { Image } from "canvas";
 
+const FPS = 60;
+const DPF = 512; // dots per frame
+
+
 const createOutputFolder = (folderName) => {
   return new Promise((resolve, reject) => {
     fs.mkdir(path.join(__dirname, `temp/${folderName}`), err => {
@@ -104,36 +108,107 @@ const toImage = () => {
 
 const setupCanvas = () => {
   return (img) => {
+
+    console.log('setupCanvas')
+
     const renderCanvas = new Canvas(img.width, img.height);
-    const ctx = renderCanvas.getContext("2d");
+    const onContext = renderCanvas.getContext("2d");
+    onContext.fillStyle = "white";
+    onContext.fillRect(0, 0, renderCanvas.width, renderCanvas.height);
+    onContext.fillStyle = "black";  
+    
+    const imageCanvas = new Canvas(renderCanvas.width, renderCanvas.height);
+    const imageCanvasContext = imageCanvas.getContext("2d");
+    imageCanvasContext.drawImage(img, 0, 0, imageCanvas.width, imageCanvas.height);
+    const imageData = imageCanvasContext.getImageData(0, 0, imageCanvas.width, imageCanvas.height);
 
-    ctx.drawImage(img, 0, 0);
-    ctx.beginPath();
-    ctx.lineWidth = "10";
-    ctx.strokeStyle = "blue";
-    ctx.rect(50, 50, 150, 80);
-    ctx.stroke();
-
-    return { renderCanvas }; 
+    return { renderCanvas, imageData };
   }
 }
 
 
-const draw = ({ }) => {
-  
+const drawPixel = ({ ctx, cx, cy, s, kernel }) => {
+  const base = kernel * 2;
+  const fontsize = base * (1 - s);
+  const ch = String.fromCodePoint(34 + Math.random() * 30 | 0);
+  ctx.font = `${fontsize}px monospace`;
+  ctx.fillText(ch, cx - (fontsize * 0.8) / 2, cy + fontsize / 2);
 }
 
-const renderEffect = () => {
-  return ({ renderCanvas }) => {
-    return new Promise(( resolve, reject ) => {
-    })
+const halftone = ({ kernel = 10 }) => { // support subregion maybe good (?)
+
+  const grayscale = ({ r, g, b }) => { // in 0..255
+    return 0.2 * r / 255 + 0.7 * g / 255 + 0.1 * b / 255; // in 0..1
   }
+
+  const samplize = ({ x, y, imageData }) => { // x, y = top left corner of kernel
+    const { width, height, data } = imageData;
+    const samples = [];
+    for (let i = y; i < y + kernel; i++) {
+      for (let j = x; j < x + kernel; j++) {
+        const at = (i * width + j) * 4;
+        const r = data[at];
+        const g = data[at + 1];
+        const b = data[at + 2];
+        samples.push({ r, g, b });
+      }
+    }
+    let sum = 0;
+    for (const sample of samples)
+      sum += grayscale(sample);
+    return sum / samples.length; // avg
+  }
+
+  return ({ renderCanvas, imageData }) => {
+
+    const halftoneData = { // struct is inspired by ImageData{}
+      kernel: kernel, // kernel size, n x n 
+      width: imageData.width / kernel | 0, // in dot
+      height: imageData.height / kernel | 0, // in dot
+      data: [] // array of num (normalized)
+    };
+
+    for (let y = 0; y <= imageData.height - kernel; y += kernel) {
+      for (let x = 0; x <= imageData.width - kernel; x += kernel) {
+        halftoneData.data.push(samplize({ x, y, imageData }));
+      }
+    }
+
+    return { halftoneData, renderCanvas };
+  };
 }
+
+const renderEffect = ({ dotsPerFrame = 1, fps = 10 }) => {
+  return ({ halftoneData, renderCanvas }) => {
+    return new Promise((resolve, reject) => {
+      const ctx = renderCanvas.getContext("2d");
+      const { width, height, kernel, data } = halftoneData;
+      console.log(width, height);
+      const dotsCount = width * height;
+      console.log("render effect");
+      let dotsDrawn = 0;
+      (function tick() {
+        for (let i = 0; i < dotsPerFrame && dotsDrawn < dotsCount; i++) {
+          const cx = (dotsDrawn % width) * kernel + kernel / 2;
+          const cy = ((dotsDrawn / width) | 0) * kernel + kernel / 2;
+          const s = data[dotsDrawn];
+          drawPixel({ ctx, cx, cy, s, kernel });
+          dotsDrawn += 1;
+        }
+
+        if (dotsDrawn < dotsCount) setTimeout(tick, 1000 / fps);
+        else resolve({ renderCanvas });
+      })();
+    });
+  };
+};
 
 const fx = (imgSrc) => {
   return Promise.resolve(imgSrc)
     .then(toImage())
     .then(setupCanvas())
+    .then(halftone({ kernel: 10 }))
+    .then(renderEffect({ dotsPerFrame: DPF, fps: FPS }));
 }
 
 
@@ -162,7 +237,7 @@ const applyImageEffect = targetDirectory => imagePath => new Promise((resolve, r
           }
         );
       })
-      .catch(err => console.log('something went wrong'))
+      .catch(err => console.log('something went wrong: ', err))
   });
 });
 
