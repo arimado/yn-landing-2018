@@ -36,7 +36,7 @@ const splitVideoIntoImages = () => {
       console.log(`${data}`);
     });
     ffmpeg.on('close', (code) => {
-      console.log('success!')
+      console.log('successfully split images into video!')
       resolve();
     });
   })
@@ -60,13 +60,18 @@ const mergeImagesIntoVideo = () => new Promise((resolve, reject) => {
 });
 
 const updateFilesInDirectory = directoryPath => updateFile => new Promise((resolve, reject) => {
-  fs.readdir(path.join(`${__dirname}/${directoryPath}`), (err, files) => {
+  const directory = path.join(`${__dirname}/${directoryPath}`); 
+  console.log('directory path for files: ', directory); 
+  fs.readdir(directory, (err, files) => {
     if (err) {
+      console.log('cannot read directory');
       reject(err);
-    }
-    const deleteFiles = files
+    } 
+    const filteredFiles = files.filter(file => file !== '.DS_Store');
+    const deleteFiles = filteredFiles
       .map(fileName => `${__dirname}/${directoryPath}/${fileName}`)
       .map(updateFile);
+
     Promise.all(deleteFiles)
       .then(data => resolve())
       .catch(err => reject());
@@ -108,9 +113,6 @@ const toImage = () => {
 
 const setupCanvas = () => {
   return (img) => {
-
-    console.log('setupCanvas')
-
     const renderCanvas = new Canvas(img.width, img.height);
     const onContext = renderCanvas.getContext("2d");
     onContext.fillStyle = "white";
@@ -178,14 +180,13 @@ const halftone = ({ kernel = 10 }) => { // support subregion maybe good (?)
   };
 }
 
-const renderEffect = ({ dotsPerFrame = 1, fps = 10 }) => {
+const renderEffect = ({ dotsPerFrame = 1, fps = 10 }, imagePath) => {
   return ({ halftoneData, renderCanvas }) => {
     return new Promise((resolve, reject) => {
+    console.log('applied effect to: ', imagePath);
       const ctx = renderCanvas.getContext("2d");
       const { width, height, kernel, data } = halftoneData;
-      console.log(width, height);
       const dotsCount = width * height;
-      console.log("render effect");
       let dotsDrawn = 0;
       (function tick() {
         for (let i = 0; i < dotsPerFrame && dotsDrawn < dotsCount; i++) {
@@ -197,30 +198,30 @@ const renderEffect = ({ dotsPerFrame = 1, fps = 10 }) => {
         }
 
         if (dotsDrawn < dotsCount) setTimeout(tick, 1000 / fps);
-        else resolve({ renderCanvas });
+        else { 
+          console.log('rendering effect for: ', imagePath);
+          resolve({ renderCanvas }) 
+        };
       })();
     });
   };
 };
 
-const fx = (imgSrc) => {
+const fx = (imgSrc, imagePath) => {
   return Promise.resolve(imgSrc)
     .then(toImage())
     .then(setupCanvas())
     .then(halftone({ kernel: 10 }))
-    .then(renderEffect({ dotsPerFrame: DPF, fps: FPS }));
+    .then(renderEffect({ dotsPerFrame: DPF, fps: FPS }, imagePath));
 }
 
 
 const applyImageEffect = targetDirectory => imagePath => new Promise((resolve, reject) => {
   fs.readFile(imagePath, (err, src) => {
     if (err) reject(); 
-    console.log('applyImageEffect reading file')
-    fx(src)
+    fx(src, imagePath)
       .then(({ renderCanvas }) => {
-        console.log("applying effect");
         const data = renderCanvas.toBuffer();
-
         fs.writeFile(
           path.join(
             __dirname,
@@ -232,12 +233,14 @@ const applyImageEffect = targetDirectory => imagePath => new Promise((resolve, r
             if (err) {
               reject();
               return;
-            }
+            }            
             resolve();
           }
         );
       })
-      .catch(err => console.log('something went wrong: ', err))
+      .catch(err => {
+        console.error('something went wrong: ', err); 
+      })
   });
 });
 
@@ -257,19 +260,25 @@ const init = async (rawImageFolderName, effectsFolderName) => {
   const rawFolder = `temp/${rawImageFolderName}`;
   const effectFolder = `temp/${effectsFolderName}`;
   const renderFolder = `/render`;
-  const updateTempImages = updateFilesInDirectory(rawFolder);
-  const updateEffectImages = updateFilesInDirectory(effectFolder);
-  const updateRenders = updateFilesInDirectory(renderFolder);
+  const updateTempImages = updateFilesInDirectory(rawFolder, 'updateTempImages');
+  const updateEffectImages = updateFilesInDirectory(effectFolder, 'updateEffectImages');
+  const updateRenders = updateFilesInDirectory(renderFolder, 'updateRenders');
 
   await createOutputFolder(rawImageFolderName);
   // split source video into images 
     // images go into the output folder 
   await splitVideoIntoImages(rawImageFolderName);
+  console.log('creating ouput folder....')
   await createOutputFolder(effectsFolderName);
+  console.log('applying effects to images ....')
   await updateTempImages(applyImageEffect(effectFolder));
+  console.log('deleting temp images ....')
   await updateTempImages(deleteFile);
+  console.log('deleting renders ....')
   await updateRenders(deleteFile);
+  console.log('merging images into video ....')
   await mergeImagesIntoVideo(effectsFolderName);
+  console.log('deleting styled images')
   await updateEffectImages(deleteFile); 
   // createEffectOuputFolder();
   // applyEffectToImages
@@ -278,6 +287,7 @@ const init = async (rawImageFolderName, effectsFolderName) => {
   console.log('application has finished running')
 }
 
+console.log('render')
 init('rawImageSplit', 'effectsImageSplit');
 
 
